@@ -17,6 +17,13 @@ const STEP_STATUS_CONFIG = {
     bgLight: "bg-emerald-50 border-emerald-200",
     icon: CheckCircle2
   },
+  bypassed: {
+    colorDark: "text-red-400 font-bold",
+    colorLight: "text-red-700 font-bold",
+    bgDark: "bg-red-500/15 border-red-500/40",
+    bgLight: "bg-red-50 border-red-300",
+    icon: ShieldAlert
+  },
   "in-progress": {
     colorDark: "text-sky-400",
     colorLight: "text-sky-700 font-bold",
@@ -43,8 +50,9 @@ export default function ExecutionEngine({ addAuditLog, darkMode, playbooks, onOp
   const [completionTime, setCompletionTime] = useState(null);
   const [cooldown, setCooldown] = useState(0);
 
-  // Remediation Status Message: PASS | FAIL | RUNNING | null
+  // Remediation Status Message: PASS | FAIL | RUNNING | BYPASSED | null
   const [remediationStatus, setRemediationStatus] = useState("PASS");
+  const [bypassedInfo, setBypassedInfo] = useState(null);
 
   const [bypassModal, setBypassModal] = useState(null);
   const [viewPlaybookModal, setViewPlaybookModal] = useState(null);
@@ -150,6 +158,17 @@ export default function ExecutionEngine({ addAuditLog, darkMode, playbooks, onOp
   function handleBypassConfirm(justification) {
     const step = bypassModal;
     setBypassModal(null);
+    const nowTime = new Date().toLocaleTimeString();
+
+    const info = {
+      stepName: step.name,
+      justification,
+      timestamp: nowTime
+    };
+
+    setBypassedInfo(info);
+    setRemediationStatus("BYPASSED");
+
     addAuditLog({
       actor: "Rajesh Sharma",
       action: "STEP_BYPASSED",
@@ -160,11 +179,15 @@ export default function ExecutionEngine({ addAuditLog, darkMode, playbooks, onOp
       user: "Rajesh Sharma",
       status: "Bypassed"
     });
-    setSteps(prev => prev.map(s => (s.id === step.id ? { ...s, status: "completed" } : s)));
+
+    // Update target step status to "bypassed"
+    setSteps(prev => prev.map(s => (s.id === step.id ? { ...s, status: "bypassed", justification } : s)));
+
     setTerminalLines(prev => [
       ...prev,
-      { text: `[BREAK-GLASS] :: Step "${step.name}" BYPASSED by Rajesh Sharma`, type: "danger", delay: 0 },
-      { text: `[BREAK-GLASS] :: Justification: ${justification}`, type: "warn", delay: 0 }
+      { text: `[BREAK-GLASS] :: Step "${step.name}" BYPASSED by Rajesh Sharma at ${nowTime}`, type: "danger", delay: 0 },
+      { text: `[BREAK-GLASS] :: Justification: ${justification}`, type: "warn", delay: 0 },
+      { text: `[BREAK-GLASS] :: OCSF 3004 audit trail event recorded. Advancement permitted under emergency policy §4.1`, type: "info", delay: 0 }
     ]);
   }
 
@@ -187,7 +210,36 @@ export default function ExecutionEngine({ addAuditLog, darkMode, playbooks, onOp
       {bypassModal && <BypassModal step={bypassModal} onConfirm={handleBypassConfirm} onCancel={() => setBypassModal(null)} />}
       {viewPlaybookModal && <PlaybookViewerModal playbook={viewPlaybookModal} onClose={() => setViewPlaybookModal(null)} />}
 
-      {/* Auto Remediation Status Banner */}
+      {/* Auto Remediation / Bypass Status Banner */}
+      {remediationStatus === "BYPASSED" && bypassedInfo && (
+        <div className={`rounded-xl border p-4 flex items-center justify-between animate-fade-in ${
+          darkMode ? "border-red-500/50 bg-red-500/15 text-white" : "border-red-300 bg-red-50 text-red-950 shadow-sm"
+        }`}>
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="text-red-500 flex-shrink-0 mt-0.5" size={22} />
+            <div>
+              <div className="flex items-center gap-2">
+                <p className={`text-xs font-black uppercase tracking-wider ${darkMode ? "text-red-300" : "text-red-950"}`}>
+                  ⚠ BREAK-GLASS STEP BYPASS EXECUTED
+                </p>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-red-500/20 text-red-700 dark:text-red-300 border border-red-500/30">
+                  OCSF 3004 LOGGED
+                </span>
+              </div>
+              <p className={`text-xs mt-1 ${darkMode ? "text-red-200" : "text-red-900 font-medium"}`}>
+                Step <strong>"{bypassedInfo.stepName}"</strong> was bypassed by <strong>Rajesh Sharma</strong> at {bypassedInfo.timestamp}.
+              </p>
+              <p className={`text-[11px] mt-0.5 italic ${darkMode ? "text-slate-300" : "text-slate-700 font-semibold"}`}>
+                Justification: "{bypassedInfo.justification}"
+              </p>
+            </div>
+          </div>
+          <span className="text-xs font-mono font-bold text-red-600 dark:text-red-300 bg-red-500/10 px-3 py-1.5 rounded-xl border border-red-500/30 whitespace-nowrap">
+            STEP BYPASSED
+          </span>
+        </div>
+      )}
+
       {remediationStatus === "PASS" && (
         <div className={`rounded-xl border p-3.5 flex items-center justify-between animate-fade-in ${
           darkMode ? "border-emerald-500/40 bg-emerald-500/10 text-white" : "border-emerald-300 bg-emerald-50 text-emerald-950 shadow-sm"
@@ -206,6 +258,7 @@ export default function ExecutionEngine({ addAuditLog, darkMode, playbooks, onOp
           </span>
         </div>
       )}
+
       {remediationStatus === "RUNNING" && (
         <div className={`rounded-xl border p-3.5 flex items-center justify-between animate-pulse ${
           darkMode ? "border-sky-500/40 bg-sky-500/10 text-white" : "border-sky-300 bg-sky-50 text-sky-950 shadow-sm"
@@ -234,7 +287,7 @@ export default function ExecutionEngine({ addAuditLog, darkMode, playbooks, onOp
           {playbooks.map(pb => (
             <button
               key={pb.id}
-              onClick={() => { setSelectedPB(pb); setSteps(pb.steps); setTerminalLines([]); setActionState("IDLE"); setRemediationStatus(null); }}
+              onClick={() => { setSelectedPB(pb); setSteps(pb.steps); setTerminalLines([]); setActionState("IDLE"); setRemediationStatus(null); setBypassedInfo(null); }}
               className={`px-3 py-1.5 text-xs rounded-xl border transition-all ${
                 selectedPB.id === pb.id
                   ? "bg-sky-600 text-white font-bold border-sky-500 shadow-md"
@@ -249,7 +302,7 @@ export default function ExecutionEngine({ addAuditLog, darkMode, playbooks, onOp
         </div>
       </div>
 
-      {/* Incident header card with CRISP contrast in Light & Dark mode */}
+      {/* Incident header card */}
       <div className={`rounded-xl border p-4 flex items-center justify-between gap-4 transition-all ${incidentCardStyle}`}>
         <div className="flex-1 cursor-pointer" onClick={() => onOpenCardDetail && onOpenCardDetail({ label: selectedPB.name, value: selectedPB.id, trend: -5 })}>
           <div className="flex items-center gap-2 mb-1">
@@ -282,7 +335,7 @@ export default function ExecutionEngine({ addAuditLog, darkMode, playbooks, onOp
             <Layers size={14} /> View Playbook
           </button>
 
-          {/* RUN ACTION BUTTON WITH STATE MACHINE & 60s COOLDOWN TIMER */}
+          {/* RUN ACTION BUTTON */}
           <button
             onClick={runAction}
             disabled={actionState !== "IDLE" || cooldown > 0}
@@ -324,25 +377,44 @@ export default function ExecutionEngine({ addAuditLog, darkMode, playbooks, onOp
         <div className="lg:col-span-1 flex flex-col gap-2 overflow-y-auto pr-1">
           <p className={`text-xs font-semibold ${subText} uppercase tracking-wider px-1`}>Playbook Workflow Steps</p>
           {steps.map((step, i) => {
-            const cfg = STEP_STATUS_CONFIG[step.status];
+            const isBypassed = step.status === "bypassed";
+            const cfg = STEP_STATUS_CONFIG[step.status] || STEP_STATUS_CONFIG.pending;
             const Icon = cfg.icon;
             const isExpanded = expandedCards[step.id];
-            const stepBg = darkMode ? cfg.bgDark : cfg.bgLight;
             const stepTextColor = darkMode ? cfg.colorDark : cfg.colorLight;
 
             return (
-              <div key={step.id} className={`rounded-2xl border p-3.5 transition-all ${darkMode ? "bg-slate-900/80 border-slate-800" : "bg-white border-slate-200 shadow-sm"}`}>
+              <div key={step.id} className={`rounded-2xl border p-3.5 transition-all ${
+                isBypassed
+                  ? darkMode ? "bg-red-500/10 border-red-500/40" : "bg-red-50 border-red-300 shadow-sm"
+                  : darkMode ? "bg-slate-900/80 border-slate-800" : "bg-white border-slate-200 shadow-sm"
+              }`}>
                 <div className="flex items-start gap-2.5">
                   <Icon size={16} className={`mt-0.5 flex-shrink-0 ${stepTextColor} ${step.status === "in-progress" ? "animate-spin" : ""}`} />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <span className={`text-xs font-bold ${darkMode ? "text-slate-400" : "text-slate-800"}`}>{i + 1}.</span>
-                      <p className={`text-xs font-bold truncate ${darkMode ? "text-white" : "text-slate-900"}`}>{step.name}</p>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className={`text-xs font-bold ${darkMode ? "text-slate-400" : "text-slate-800"}`}>{i + 1}.</span>
+                        <p className={`text-xs font-bold truncate ${darkMode ? "text-white" : "text-slate-900"}`}>{step.name}</p>
+                      </div>
+
+                      {/* DISPLAY BYPASSED BADGE ON STEP CARD */}
+                      {isBypassed && (
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-red-500/20 text-red-600 dark:text-red-300 border border-red-500/40 flex-shrink-0">
+                          BYPASSED
+                        </span>
+                      )}
                     </div>
 
                     <p className={`text-xs leading-relaxed ${darkMode ? "text-slate-400" : "text-slate-700 font-medium"} ${!isExpanded ? "line-clamp-2" : ""}`}>
                       {step.description}
                     </p>
+
+                    {isBypassed && step.justification && (
+                      <p className="text-[11px] mt-1.5 text-red-600 dark:text-red-300 bg-red-500/10 p-2 rounded-lg border border-red-500/20 italic">
+                        Justification: "{step.justification}"
+                      </p>
+                    )}
 
                     <button
                       onClick={() => toggleExpandCard(step.id)}
